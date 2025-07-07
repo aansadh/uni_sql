@@ -1,0 +1,23 @@
+-- Create a new database named 'unisqldb'
+CREATE DATABASE unisqldb;
+
+-- List all databases to verify the creation of 'unisqldb'
+\list
+
+-- Create a new user 'unisql_user' with a password
+CREATE USER unisql_user WITH PASSWORD 'unisql_user';
+
+-- Connect to the 'unisqldb' database as the 'postgres' user
+\c unisqldb
+
+-- Allow the 'unisql_user' to connect to the 'unisqldb' database
+GRANT CONNECT ON DATABASE unisqldb TO unisql_user;
+
+-- Grant SELECT (read) permissions on all existing tables in the public schema to 'unisql_user'
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO unisql_user;
+
+-- Grant SELECT permissions on all future tables created in the public schema to 'unisql_user'
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO unisql_user;
+
+-- Exit the PostgreSQL command-line interface
+\q
