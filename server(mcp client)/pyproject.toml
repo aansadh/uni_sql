@@ -1,0 +1,11 @@
+# pyproject.toml
+[project]
+name = "my-fastapi-project"
+version = "0.1.0"
+dependencies = [
+    "fastapi[standard]>=0.115.14",
+    "pydantic-settings>=2.10.1",
+    "requests>=2.32.4",
+    "uvicorn>=0.35.0",
+]
+
