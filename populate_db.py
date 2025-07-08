@@ -189,7 +189,7 @@ async def main():
     # It's better to get the database URL from settings.py
     # if you have `settings.DATABASE_URL` configured.
     # For demonstration, keeping it hardcoded as in your example.
-    db_url = 'postgresql+asyncpg://postgres:78f1f335309a427b9a4220b0b5ca0f21@localhost:5432/unisqldb'
+    db_url = 'postgresql+asyncpg://postgres:password@localhost:5432/unisqldb'
     engine = create_engine(db_url)
     AsyncSessionLocal = sessionmaker(
         bind=engine,
