@@ -1,9 +1,9 @@
-from fastapi import Request, Depends
-from mcp_server.services.db_services import DBServices
+from services.db_services import DBServices
 import logging
 from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from mcp.server.fastmcp import FastMCP
 
 logger = logging.getLogger(__name__)
 
@@ -19,43 +19,88 @@ def create_engine(database_url: str):
                             postgresql+asyncpg://<user>:<password>@<host>:<port>/<db>
 
     Returns:
-        None
+        DbEngine, Session: A tuple containing the SQLAlchemy async engine and sessionmaker.
     """
-    global _async_engine
-    if _async_engine is None:
-        # pool_pre_ping maintains active connections.
-        _async_engine = create_async_engine(database_url, pool_pre_ping=True, echo=True)
-        _Session = sessionmaker(
-            bind=_async_engine,
-            class_=AsyncSession
-        )
-    return _async_engine
+    if not database_url.strip():
+        raise ValueError("Database URL cannot be empty or whitespace.")
+    try:
+        global _async_engine, _Session
+        if _async_engine is None:
+            # pool_pre_ping maintains active connections.
+            _async_engine = create_async_engine(database_url.strip())
+            _Session = sessionmaker(
+                bind=_async_engine,
+                class_=AsyncSession
+            )
+        return _async_engine, _Session
+    except Exception as e:
+        raise RuntimeError(f"Failed to create database engine: {e}")
 
-def get_engine():
+def get_engine(mcp: FastMCP = None) -> Engine:
     """
     Get the SQLAlchemy async engine.
+
+    Args:
+        mcp (FastMCP): The FastMCP application instance.
 
     Returns:
         Engine: The SQLAlchemy async engine.
     """
-    global _async_engine
-    if _async_engine is None:
+    ctx = mcp.get_context()
+    engine = ctx.request_context.lifespan_context.db_engine or _async_engine
+    if engine is None:
         raise RuntimeError("Database engine not initialized. Call create_engine first.")
-    return _async_engine
+    return engine
 
-def get_session():
+def get_new_session(mcp: FastMCP = None) -> AsyncSession:
     """
     Get a new SQLAlchemy async session.
+
+    Args:
+        mcp (FastMCP): The FastMCP application instance.
 
     Returns:
         AsyncSession: A new SQLAlchemy async session.
     """
-    global _Session
-    if _Session is None:
-        raise RuntimeError("Session factory not initialized. Call create_engine first.")
-    return _Session()
+    ctx = mcp.get_context()
+    sessionmaker = ctx.request_context.lifespan_context.db_sessionmaker or _Session
+    if sessionmaker is None:
+        raise RuntimeError("Sessionmaker not initialized. Call create_engine first.")
+    return sessionmaker()
 
-def get_db_services(request: Request, db_engine: Engine = Depends(get_engine)):
-    if not hasattr(request.app.state, 'db_services') or request.app.state.db_services is None:
-        request.app.state.db_services = DBServices(db_engine=db_engine)
-    return request.app.state.db_services
+def get_sessionmaker(mcp: FastMCP = None):
+    """
+    Get the SQLAlchemy sessionmaker.
+
+    Args:
+        mcp (FastMCP): The FastMCP application instance.
+
+    Returns:
+        sessionmaker: The SQLAlchemy sessionmaker.
+
+    Raises:
+        RuntimeError: If the sessionmaker is not initialized.
+
+    Note: Use this as:
+        with get_sessionmaker(mcp)() as session:
+            # Your code here...
+    """
+    ctx = mcp.get_context()
+    sessionmaker = ctx.request_context.lifespan_context.db_sessionmaker or _Session
+    if sessionmaker is None:
+        raise RuntimeError("Sessionmaker not initialized. Call create_engine first.")
+    return sessionmaker
+
+def get_db_services(mcp: FastMCP) -> DBServices:
+    """
+    Dependency to get the DBServices instance.
+
+    Args:
+        Session (AsyncSession): The SQLAlchemy async session.
+
+    Returns:
+        DBServices: An instance of DBServices.
+    """
+    new_session = get_new_session(mcp)
+    return DBServices(db_session=new_session)
+    
