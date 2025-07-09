@@ -89,3 +89,10 @@ async def execute_sql_query(
         except Exception as e:
             logger.error("Unexpected error during query execution: %s", str(e), exc_info=True)
             raise QueryExecutionError(f"Error executing query: {str(e)}") from e
+        
+if __name__ == "__main__":
+    """
+    Main entry point for the server.
+    This will start the FastMCP server.
+    """
+    mcp.run(transport=settings.SERVER_TRANSPORT)

@@ -16,4 +16,3 @@
 5. Add required dependencies using:
     uv add 
     Eg. uv add mcp[cli] httpx
-
