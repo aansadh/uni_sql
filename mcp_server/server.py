@@ -43,6 +43,8 @@ async def lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
     finally:
         db_engine.dispose()
 
+# stateless_http=True, json_response=True -> # Stateless server (no session persistence, no sse stream with supported client)
+# In settings, transport='streamable-http'     for http transport. Currently, the server uses stdio transport.
 mcp = FastMCP(
     name="DBServer",
     lifespan=lifespan,
