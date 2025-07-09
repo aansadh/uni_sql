@@ -1,0 +1,19 @@
+1. Create pyproject.toml file with contents:
+    # pyproject.toml
+    [project]
+    name = "my-fastapi-project"
+    version = "0.1.0"
+    dependencies = []
+
+2. Run uv venv. 
+
+3. Activate using:
+    .venv\Scripts\activate
+
+4. Setup interpreter: 
+    Ctrl + Shift + P > Select interpreter.
+
+5. Add required dependencies using:
+    uv add 
+    Eg. uv add mcp[cli] httpx
+

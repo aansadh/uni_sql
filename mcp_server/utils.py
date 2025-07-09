@@ -1,5 +1,5 @@
 import logging
-from mcp_server.exceptions import QueryValidationError
+from exceptions import QueryValidationError
 
 logger = logging.getLogger(__name__)
 
