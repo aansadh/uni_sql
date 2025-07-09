@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     DB_NAME: str = "unisqldb"
     DB_HOST: str = "localhost"
     DB_PORT: int = 5432
+    SERVER_TRANSPORT: str = "stdio"
 
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
 
