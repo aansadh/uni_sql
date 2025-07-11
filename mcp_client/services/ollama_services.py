@@ -1,6 +1,6 @@
-import requests
+import httpx
 from exceptions import LLMGenerationError
-from utils import run_in_threadpool, log_duration
+from utils import log_duration
 import logging
 from typing import List, Dict, Any
 from core.config import settings
@@ -29,8 +29,7 @@ class OllamaServices():
         logger.info(f"Ollama instance initialized with model: {self.model}")
 
     @log_duration
-    @run_in_threadpool
-    def _make_ollama_request(self, json: dict):
+    async def _make_ollama_request(self, json: dict):
         """
         Makes a request to the Ollama API with the given JSON payload.
 
@@ -45,14 +44,15 @@ class OllamaServices():
         """
         try:
             logger.debug(f"Sending request to Ollama API with payload: %s", json)
-            response = requests.post(self.url, headers=self.headers, json=json)
-            response.raise_for_status()
+            async with httpx.AsyncClient() as client:
+                response = await client.post(self.url, headers=self.headers, json=json)
+                response.raise_for_status()
             logger.info("Response received successfully from Ollama API.")
             return response.json()
-        except requests.HTTPError as e:
+        except httpx.HTTPError as e:
             logger.error(f"Model API error: %s - %s", e.response.status_code, e.response.text, exc_info=True)
             raise LLMGenerationError(f"Model API error: {e.response.status_code} - {e.response.text}")
-        except requests.RequestException as e:
+        except httpx.RequestError as e:
             logger.error(f"Request to model API failed: %s", str(e), exc_info=True)
             raise LLMGenerationError(f"Request to model API failed: {str(e)}")
         except Exception as e:
