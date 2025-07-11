@@ -55,6 +55,7 @@ mcp = FastMCP(
     name="execute_sql_query",  
     title="Execute SQL Query",  
     description="Executes a SQL query asynchronously using provided parameters and returns the results.",
+    ctx: Context
 )
 async def execute_sql_query(
     query: str, params: dict = {}
@@ -73,8 +74,8 @@ async def execute_sql_query(
     Raises:
         QueryExecutionError: If there is an error during query execution.
     """
-    logger.debug("Received query: %s with params: %s", query, params)
-    db_sessionmaker = get_sessionmaker(mcp=mcp)
+    await ctx.info("Executing SQL query", query=query, params=params)
+    db_sessionmaker = get_sessionmaker(mcp=mcp) 
     async with db_sessionmaker() as session:
         db_services = DBServices(db_session=session)
         try:
@@ -98,3 +99,4 @@ if __name__ == "__main__":
     This will start the FastMCP server.
     """
     mcp.run(transport=settings.SERVER_TRANSPORT)
+
