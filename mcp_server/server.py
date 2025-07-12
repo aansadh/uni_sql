@@ -43,12 +43,17 @@ async def lifespan(server: FastMCP) -> AsyncIterator[AppContext]:
     finally:
         db_engine.dispose()
 
-# stateless_http=True, json_response=True -> # Stateless server (no session persistence, no sse stream with supported client)
-# In settings, transport='streamable-http'     for http transport. Currently, the server uses stdio transport.
+kwargs = {}
+if settings.SERVER_TRANSPORT == 'streamable-http':
+    kwargs = {
+        "stateless_http": True
+    }
+
 mcp = FastMCP(
     name="DBServer",
     lifespan=lifespan,
     description="A server for executing PostgreSQL queries and managing database interactions.",
+    **kwargs
 )
 
 @mcp.tool(
@@ -91,4 +96,7 @@ if __name__ == "__main__":
     Main entry point for the server.
     This will start the FastMCP server.
     """
-    mcp.run(transport=settings.SERVER_TRANSPORT)
+    print("Starting the MCP server...")
+    mcp.run(
+        transport="streamable-http"
+    )
