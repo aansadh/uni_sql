@@ -16,3 +16,9 @@
 5. Add required dependencies using:
     uv add 
     Eg. uv add mcp[cli] httpx
+
+To run mcp server with stdio transport, use:
+    Unisql\mcp_server> uv run mcp dev server.py      (this starts the inspector - enough for stdio transport)
+To run mcp server with streamable-http transport, use:
+    Unisql\mcp_server> uv run mcp dev server.py 
+    Unisql\mcp_server> uv run server.py              (this starts mcp server)
