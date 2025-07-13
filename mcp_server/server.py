@@ -96,7 +96,5 @@ if __name__ == "__main__":
     Main entry point for the server.
     This will start the FastMCP server.
     """
-    print("Starting the MCP server...")
-    mcp.run(
-        transport="streamable-http"
-    )
+    logger.info("Starting FastMCP server...")
+    mcp.run(transport=settings.SERVER_TRANSPORT)
