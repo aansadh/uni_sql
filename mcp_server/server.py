@@ -97,4 +97,4 @@ if __name__ == "__main__":
     This will start the FastMCP server.
     """
     logger.info("Starting FastMCP server...")
-    mcp.run(transport=settings.SERVER_TRANSPORT)
+    mcp.run(transport=settings.SERVER_TRANSPORT, mount_path="/mcp")
