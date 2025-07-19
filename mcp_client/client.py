@@ -1,10 +1,11 @@
 from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
 from rich import print
+from core.config import settings
 
 class MCPClient:
     def __init__(self):
-        pass
+        self.url = settings.
 
 async def main():
     async with streamablehttp_client(url="http://127.0.0.1:8000/mcp") as (

@@ -3,7 +3,7 @@ from exceptions import LLMGenerationError
 from utils import log_duration
 import logging
 from typing import List, Dict, Any
-from core.config import settings
+# from core.config import settings
 from pydantic import BaseModel, Field
 from typing import Literal, Optional, Dict, List
 from mcp import Tool
@@ -150,6 +150,7 @@ class OllamaServices():
             logger.error(f"Unexpected Ollama response format: %s", ollama_response)
             raise LLMGenerationError(f"Unexpected Ollama response format: {ollama_response}")
 
+    @staticmethod
     def convert_mcp_tool_to_ollama_tool(tool: Tool) -> OllamaTool:
         """
             Converts an MCP Tool object to an OllamaTool Pydantic instance.
@@ -217,5 +218,5 @@ if __name__ == "__main__":
         }
     )
 
-    ollama_tool = convert_mcp_tool_to_ollama_tool(test_tool)
+    ollama_tool = OllamaServices.convert_mcp_tool_to_ollama_tool(test_tool)
     print(ollama_tool.model_dump_json(indent=2)) 
