@@ -19,10 +19,10 @@ class Settings(BaseSettings):
 
     # Ollama (NL2SQL LLM) settings
     NL2SQL_LLM_URL: str = "http://localhost:11434/api/chat"
-    NL2SQL_LLM_MODEL: str = "phi3:mini"
+    NL2SQL_LLM_MODEL: str = "sqlcoder:7b"
 
     # MCP Server (Database Connector) settings
-    MCP_SERVER_URL: str = "http://localhost:8001"
+    MCP_SERVER_URL: str = "http://localhost:8000/mcp"
 
     LOG_LEVEL:int = logging.INFO
 
