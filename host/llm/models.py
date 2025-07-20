@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Literal, Optional, Dict, List
+from typing import Literal, Optional, Dict, List, Any
 
 class ParameterProperty(BaseModel):
     """
@@ -48,3 +48,18 @@ class OllamaTool(BaseModel):
     """
     type: str = Field(default="function", description="Type of the tool, e.g., 'function'")
     function: FunctionTool = Field(..., description="Function tool definition")
+
+###################################################
+
+class OllamaResponseModel(BaseModel):
+    """
+    Represents the response model for an Ollama tool.
+
+    Attributes:
+        tool_name (Optional[str]): The name of the tool to be called.
+        arguments (Optional[Dict[str, Any]]): The arguments to pass to the tool.
+        content (Optional[str]): The content of the response message.
+    """
+    tool_name: Optional[str] = Field(None, description="Name of the tool to be called.", alias='name')
+    arguments: Optional[Dict[str, Any]] = Field(None, description="Arguments to pass to the tool.", alias='arguments')
+    content: Optional[str] = Field(None, description="Content of the response message.", alias='content')

@@ -3,6 +3,8 @@ from mcp import ClientSession
 from rich import print
 from host.core.config import settings
 import logging
+from typing import List
+from mcp import Tool
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +17,10 @@ class MCPClient:
         _session (ClientSession): The current client session.
         _streameablehttp_client (streamablehttp_client): The HTTP client for streaming.
         _client_session (ClientSession): The client session for communication.
+
+    NOTE:
+        This class is designed to be used as an asynchronous context manager.
+        Use `async with MCPClient() as client:` to ensure proper session management.
     """
 
     def __init__(self, url: str = None):
@@ -28,6 +34,7 @@ class MCPClient:
         self._session = None
         self._streameablehttp_client: streamablehttp_client = None
         self._client_session: ClientSession = None
+        self.tools: List[Tool] = []
         logger.info("MCPClient initialized with URL: %s", self.url)
 
     async def __aenter__(self):
@@ -61,7 +68,7 @@ class MCPClient:
             await self._streameablehttp_client.__aexit__(exc_type, exc_value, traceback)
         logger.info("MCP Client session closed.")
 
-    async def get_session(self):
+    def _get_session(self):
         """
         Returns the current client session.
 
@@ -79,35 +86,35 @@ class MCPClient:
 
     async def list_resources(self):
         """
-        Lists all available resources on the MCP server.
+        Asynchrounously lists all available resources on the MCP server.
 
         Returns:
             List[Resource]: A list of available resources.
         """
         logger.info("Listing resources from the MCP server.")
-        return await self.get_session().list_resources()
+        return await self._get_session().list_resources()
 
     async def list_prompts(self):
         """
-        Lists all available prompts on the MCP server.
+        Asynchrounously lists all available prompts on the MCP server.
 
         Returns:
             List[Prompt]: A list of available prompts.
         """
         logger.info("Listing prompts from the MCP server.")
-        return await self.get_session().list_prompts()
+        return await self._get_session().list_prompts()
 
     async def list_tools(self):
         """
-        Lists all available tools on the MCP server.
+        Asynchronously lists all available tools on the MCP server.
 
         Returns:
             List[Tool]: A list of available tools.
         """
         logger.info("Listing tools from the MCP server.")
-        return await self.get_session().list_tools()
+        return await self._get_session().list_tools()
 
-    async def call_tool(self, tool_name: str, params: dict):
+    async def call_tool(self, tool_name: str, arguments: dict):
         """
         Calls a tool on the MCP server with the given parameters.
 
@@ -115,8 +122,8 @@ class MCPClient:
             tool_name (str): The name of the tool to call.
             params (dict): The parameters for the tool.
         """
-        logger.info("Calling tool '%s' with parameters: %s", tool_name, params)
-        await self._session.call_tool(tool_name, params)
+        logger.info("Calling tool '%s' with parameters: %s", tool_name, arguments)
+        await self._get_session().call_tool(tool_name, arguments)
 
 async def main():
     """
@@ -127,16 +134,16 @@ async def main():
     """
     logger.info("Starting MCPClient main function.")
     async with MCPClient(settings.MCP_SERVER_URL) as client:
-        session = await client.get_session()
+        session = await client._get_session()
         print("Session initialized.")
 
-        prompts = await session.list_prompts()
+        prompts = await client.list_prompts()
         print(f"Available prompts: {[p.name for p in prompts.prompts]}")
 
-        tools = await session.list_tools()
+        tools = await client.list_tools()
         print(f"Available tools: {[t.name for t in tools.tools]}")
 
-        resources = await session.list_resources()
+        resources = await client.list_resources()
         print(f"Available resources: {[r.uri for r in resources.resources]}")
 
         tool_result = await session.call_tool("execute_sql_query", {"query": "SELECT * FROM customers;"})
