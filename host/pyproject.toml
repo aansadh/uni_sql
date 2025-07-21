@@ -1,0 +1,11 @@
+[project]
+name = "mcp-client"
+version = "0.1.0"
+dependencies = [
+    "httpx>=0.28.1",
+    "langgraph>=0.5.3",
+    "mcp[cli]>=1.11.0",
+    "ollama>=0.5.1",
+    "pydantic-settings>=2.10.1",
+    "pydantic>=2.10.1",
+]

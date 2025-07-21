@@ -1,5 +1,11 @@
 from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
+from rich import print
+from core.config import settings
+
+class MCPClient:
+    def __init__(self):
+        self.url = settings.
 
 async def main():
     async with streamablehttp_client(url="http://127.0.0.1:8000/mcp") as (
@@ -7,7 +13,6 @@ async def main():
         write_stream,
         _,
     ):
-        # Create a session using the client streams
         async with ClientSession(read_stream, write_stream) as session:
             # Initialize the connection
             print("Initializing session...")
@@ -18,6 +23,7 @@ async def main():
             print(f"Available prompts: {[p.name for p in prompts.prompts]}")
 
             tools = await session.list_tools()
+            print("Available tools:", tools)
             print(f"Available tools: {[t.name for t in tools.tools]}")
 
             resources = await session.list_resources()
