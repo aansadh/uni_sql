@@ -2,7 +2,7 @@ import httpx
 from host.exceptions import LLMGenerationError
 from shared.utils import log_duration
 import logging
-from typing import List, Dict, Any, Sequence
+from typing import List, Dict, Any, Sequence, Optional, Union
 from mcp import ListToolsResult
 from mcp.types import Tool
 from host.core.config import settings
@@ -10,6 +10,9 @@ from .models import OllamaTool, FunctionTool, FunctionParameters, ParameterPrope
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage, FunctionMessage
 from langchain_core.messages.tool import ToolCall 
 from pprint import pprint
+from ollama import AsyncClient, chat
+from pydantic import BaseModel
+import uuid, json
 
 logger = logging.getLogger(__name__)
 
@@ -18,13 +21,15 @@ class OllamaClient():
     A class for interacting with the Ollama API to generate responses based on prompts.
 
     Attributes:
-        url (str): The API endpoint URL.
+        url (Optional[str]): The API endpoint URL.
         headers (dict): HTTP headers for the API request.
         model (str): The model to use for generation.
         default_params (dict): Additional parameters for the API request.
+
+        The default_params are passed to the 'chat' method of the AsyncClient.
     """
 
-    def __init__(self, url: str, headers: dict = None, model: str = None, **kwargs):
+    def __init__(self, url: Optional[str] = None, headers: dict = None, model: str = None, tools: Optional[Sequence[Tool]] = None, format: Optional[BaseModel] = None, **kwargs):
         """
         Initializes the Ollama instance.
 
@@ -33,48 +38,26 @@ class OllamaClient():
             headers (dict, optional): HTTP headers for the API request. Defaults to None.
             model (str, optional): The model to use for generation. Defaults to "phi3:mini".
             **kwargs: Additional parameters for the API request.
+    
         """
-        self.url = url.strip() if url else settings.NL2SQL_LLM_URL.strip()
-        self.headers = headers or { "Content-Type": "application/json" }
-        self.model = model or settings.NL2SQL_LLM_MODEL.strip()
+        self.url = url.strip() if url else None
+        headers = headers or { "Content-Type": "application/json" }
+        self.model = model or settings.LLM_MODEL.strip()
         self.default_params = kwargs
+        self.async_client = AsyncClient(url, headers=headers)
+        self.format = format 
+
+        if tools:
+            self.tools = self.convert_mcp_tools_to_ollama_tools(tools)
+            self.default_params['tools'] = self.tools
+
         logger.info(f"Ollama instance initialized with model: {self.model}")
 
     @log_duration
-    async def _make_ollama_request(self, json: dict):
-        """
-        Makes a request to the Ollama API with the given JSON payload.
-
-        Args:
-            json (dict): The JSON payload for the API request.
-
-        Returns:
-            dict: The JSON response from the API.
-
-        Raises:
-            LLMGenerationError: If there is an error during the API request.
-        """
-        try:
-            logger.debug(f"Sending request to Ollama API with payload: %s", json)
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                response = await client.post(self.url, headers=self.headers, json=json)
-                response.raise_for_status()
-            logger.info("Response received successfully from Ollama API.")
-            return response.json()
-        except httpx.HTTPError as e:
-            logger.error(f"Model api error: %s", str(e), exc_info=True)
-            raise LLMGenerationError(f"Model API error: {str(e)}")
-        except httpx.RequestError as e:
-            logger.error(f"Request to model API failed: %s", str(e), exc_info=True)
-            raise LLMGenerationError(f"Request to model API failed: {str(e)}")
-        except Exception as e:
-            logger.error(f"Unexpected error during query: %s", str(e), exc_info=True)
-            raise LLMGenerationError(f"Unexpected error during query: {str(e)}")
-
-    @log_duration
-    async def ainvoke(self, messages: Sequence[BaseMessage]) -> Dict[str, Any]:
+    async def ainvoke(self, messages: Union[Dict[str, Any], Sequence[BaseMessage]]) -> Dict[str, Any]:
         """
         Asynchronously generates a response from the Ollama chat model using a list of messages.
+        Under the hood, it uses the Ollama API to send the messages and receive a response.
 
         Args:
             messages (Sequence[BaseMessage]): A list of messages for the conversation.
@@ -87,39 +70,57 @@ class OllamaClient():
 
         NOTE: Currently, streaming is not supported in this method.
         """
+        if isinstance(messages, Sequence) and messages and isinstance(messages[0], BaseMessage):
+            logger.debug("Converting LangChain messages to Ollama format.")
+            messages = self.convert_lc_messages_to_ollama_messages(messages)
 
-        logger.debug(f"Invoking Ollama model: %s with messages: %s...", self.model, messages[:1])
+        try:
+            raw_response = chat(
+                model=self.model,
+                messages=messages,
+                format=self.format.model_json_schema(by_alias=False) if self.format else None,
+                **self.default_params
+            )
 
-        # pprint(f"Default tools: {self.default_params.get('tools', 'None')}")
+            response = ''
+            try:
+                if self.format and raw_response.message.content.strip():
+                    response = self.format.model_validate_json(raw_response.message.content)
+            except json.JSONDecodeError as e:
+                response = raw_response.message.content
 
-        if 'tools' in self.default_params and isinstance(self.default_params['tools'], ListToolsResult):
-            logger.debug("Converting MCP tools to Ollama tools...")
-            self.default_params['tools'] = self.convert_mcp_tools_to_ollama_tools(self.default_params['tools'].tools)
+            tool_calls = self._get_tool_calls(raw_response.message)
 
-        pprint(f"Default tools after conversion: {self.default_params.get('tools', 'None')}")
+            return {
+                'content': response,
+                'tool_calls': tool_calls,
+                'raw_response': raw_response
+            }
 
-        ollama_messages = self.convert_lc_messages_to_ollama_messages(messages)
-
-        # pprint(f"Ollama messages: {ollama_messages}")
-
-        json = {
-            "model": self.model,
-            "messages": ollama_messages,
-            "stream": False,
-            **self.default_params
-        }
-        ollama_response = await self._make_ollama_request(json=json)
-
-        pprint(f"Ollama response: {ollama_response} ")
-
-        if ollama_response and 'message' in ollama_response:
-            logger.debug(f"Ollama response received: {ollama_response}")
-            response_content = ollama_response['message']
-            logger.info("Ollama response generated successfully.")
-            return response_content
-        else:
-            logger.error(f"Unexpected Ollama response format: {ollama_response}")
-            raise LLMGenerationError(f"Unexpected Ollama response format: {ollama_response}")
+        except httpx.HTTPError as e:
+            logger.error(f"Model API error: {e.response.status_code} - {e.response.text}", exc_info=True)
+            raise LLMGenerationError(f"Model API error: {e.response.status_code} - {e.response.text}")
+        except httpx.RequestError as e:
+            logger.error(f"Request to model API failed: {str(e)}", exc_info=True)
+            raise LLMGenerationError(f"Request to model API failed: {str(e)}")
+        except Exception as e:
+            logger.error(f"Unexpected error during query: {str(e)}", exc_info=True)
+            raise LLMGenerationError(f"Unexpected error during query: {str(e)}")
+        
+    def _get_tool_calls(self, ollama_result) -> List[Dict[str, Any]]:
+        if not ollama_result.tool_calls:
+            return []
+        
+        tool_calls = []
+        for tool_call in ollama_result.tool_calls:
+            tool = tool_call.function
+            tool_calls.append({
+                "name": tool.name,
+                "args": tool.arguments,
+                "id": str(uuid.uuid4())
+            })
+        
+        return tool_calls
 
     @staticmethod
     def convert_mcp_tools_to_ollama_tools(tools: List[Tool]) -> List[Dict[str, Any]]:

@@ -42,10 +42,8 @@ class AgentState(TypedDict):
     """
     messages: Annotated[Sequence[BaseMessage], add_messages]
     tools: List[MCPTool]
-    arguments: Dict[str, Any]
-    next_tool: Optional[NodeType] = None
-    next_tool_id: Optional[str] = None
     last_node: Optional[NodeType] = None
+    tool_calls: Optional[List[Dict[str, Any]]] = None
 
 async def initialize_state(agent_state: AgentState) -> AgentState:
     """
@@ -59,12 +57,14 @@ async def initialize_state(agent_state: AgentState) -> AgentState:
     """
     logger.debug("Initializing agent state with tools and messages.")
     global _llm
+
     async with MCPClient(settings.MCP_SERVER_URL) as client:
         agent_state['tools'] = await client.list_tools()
-    # _llm = OllamaClient(url=settings.LLM_URL, model=settings.LLM_MODEL, tools=agent_state.get('tools'), format=OllamaResponseModel.model_json_schema(by_alias=False))
+
+    _llm = OllamaClient(model=settings.LLM_MODEL, tools=agent_state.get('tools'), format=OllamaResponseModel)
     agent_state['messages'] = []
-    logger.debug("Agent state initialized:")
-    # pprint(agent_state)
+    agent_state['tool_calls'] = []
+    logger.debug("Agent state initialized")
 
     system_message = SystemMessage(
         content=
@@ -153,7 +153,7 @@ def decide_next_node(state: AgentState) -> AgentState:
     logger.debug("Deciding the next node with state:")
     # pprint(state)
     last_node = state.get('last_node', None)
-    if state.get('next_tool') and last_node == 'agent':
+    if state.get('tool_calls') and state['tool_calls'] and last_node == 'agent':
         logger.debug("Next node decided: tool_executor")
         return "tool_executor"
     elif last_node == 'call_tool' or last_node == 'human_assistance':
@@ -176,23 +176,38 @@ async def call_tool(state: AgentState) -> AgentState:
     Raises:
         ValueError: If no tool is specified to call.
     """
-    logger.debug("Calling tool with state:")
+    logger.debug("Calling tools.")
+    logger.info("In call_tool node.")
+
     state['last_node'] = 'call_tool'
-    if not state.get('next_tool'):
-        logger.error("No tool specified to call.")
-        raise ValueError("No tool specified to call.")
-    
+
     async with MCPClient(settings.MCP_SERVER_URL) as client:
-        result = await client.call_tool(state.get('next_tool'), state.get('arguments'))
-    print("Tool result:")
-    print(result)
-    print("type of content", type(result.content[0].text))
-    state['messages'].append(ToolMessage(content=result.content[0].text, tool_call_id=state['next_tool_id']))
-    state['next_tool'] = None
-    state['next_tool_id'] = None
-    state['arguments'] = None
+        if state.get('tool_calls'):
+            for tool in state.get('tool_calls'):
+                result = await client.call_tool(tool['name'], tool['args'])
+                print("Tool result: ", result)
+                state['messages'].append(ToolMessage(content=result.content[0].text, tool_call_id=tool['id']))
+    
+    state['tool_calls'] = None
 
     return state
+
+
+    # if not state.get('next_tool'):
+    #     logger.error("No tool specified to call.")
+    #     raise ValueError("No tool specified to call.")
+    
+    # async with MCPClient(settings.MCP_SERVER_URL) as client:
+    #     result = await client.call_tool(state.get('next_tool'), state.get('arguments'))
+    # print("Tool result:")
+    # print(result)
+    # print("type of content", type(result.content[0].text))
+    # state['messages'].append(ToolMessage(content=result.content[0].text, tool_call_id=state['next_tool_id']))
+    # state['next_tool'] = None
+    # state['next_tool_id'] = None
+    # state['arguments'] = None
+
+    # return state
 
 async def agent(state: AgentState) -> AgentState:
     """
@@ -204,50 +219,17 @@ async def agent(state: AgentState) -> AgentState:
     Returns:
         AgentState: The updated state after agent execution.
     """
-    logger.debug("Executing agent logic with state:")
-    # pprint(state)
+    logger.info("In agent node.")
     state["last_node"] = "agent"
 
-    # response = await _llm.ainvoke(state.get('messages'))  
-    raw_response = chat(
-        messages=OllamaClient.convert_lc_messages_to_ollama_messages(state.get('messages')),
-        model=settings.LLM_MODEL,
-        tools=OllamaClient.convert_mcp_tools_to_ollama_tools(state.get('tools')),
-        format=OllamaResponseModel.model_json_schema(by_alias=False)
-    )
-
-    print("LLM raw Response: ", raw_response)
-
-    try:
-        if raw_response.message.content.strip():
-            response = OllamaResponseModel.model_validate_json(raw_response.message.content)
-            print("LLM Response:")
-            pprint(response)
-    except json.JSONDecodeError as e:
-        logger.error("Failed to parse LLM response: %s", e)
-        state['next_tool'] = None
-        state['arguments'] = None
-        # print("Response: ", response.get('content'))
-        print("Entered json.JsonDecodeError")
+    response = await _llm.ainvoke(state.get('messages'))  
     
-    if raw_response.message.tool_calls:
-        next_tool = raw_response.message.tool_calls[0].function
-        state['next_tool'] = next_tool.name
-        state['arguments'] = next_tool.arguments
-        state['next_tool_id'] = str(uuid.uuid4())
+    content, tool_calls = response.get('content'), response.get('tool_calls', None)
 
-    print("The response from the LLM: ", raw_response.message.content)
-    print(f"Tool calls: {state['next_tool']} with arguments: {state['arguments']}")
+    state['tool_calls'] = tool_calls
+    state['messages'].append(AIMessage(content=response['raw_response'].message.content or "", tool_calls=tool_calls))
 
-    args = {}
-    if state.get('next_tool'):
-        args["tool_calls"] = [{
-            "name": state['next_tool'],
-            "args": state['arguments'],
-            "id": state['next_tool_id']
-        }]
-
-    state['messages'].append(AIMessage(content=raw_response.message.content, **args))
+    print("LLM response content:", content, " tool calls:", tool_calls)
 
     return state
 
