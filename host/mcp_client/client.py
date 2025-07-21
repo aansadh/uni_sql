@@ -123,7 +123,8 @@ class MCPClient:
             params (dict): The parameters for the tool.
         """
         logger.info("Calling tool '%s' with parameters: %s", tool_name, arguments)
-        await self._get_session().call_tool(tool_name, arguments)
+        print(f"Calling tool '{tool_name}' with parameters: {arguments}")
+        return await self._get_session().call_tool(tool_name, arguments)
 
 async def main():
     """
