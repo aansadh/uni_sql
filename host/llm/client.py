@@ -1,3 +1,11 @@
+"""
+This module provides the OllamaClient class for interacting with the Ollama API.
+
+The OllamaClient class is designed to manage communication with the Ollama API,
+including sending messages, converting tools and messages, and handling responses.
+It also demonstrates the conversion of MCP Tool objects to OllamaTool instances.
+"""
+
 import httpx
 from host.exceptions import LLMGenerationError
 from shared.utils import log_duration
@@ -25,8 +33,9 @@ class OllamaClient():
         headers (dict): HTTP headers for the API request.
         model (str): The model to use for generation.
         default_params (dict): Additional parameters for the API request.
-
-        The default_params are passed to the 'chat' method of the AsyncClient.
+        async_client (AsyncClient): The asynchronous client for API communication.
+        format (Optional[BaseModel]): The format for validating responses.
+        tools (Optional[List[Dict[str, Any]]]): A list of tools converted to Ollama format.
     """
 
     def __init__(self, url: Optional[str] = None, headers: dict = None, model: str = None, tools: Optional[Sequence[Tool]] = None, format: Optional[BaseModel] = None, **kwargs):
@@ -34,11 +43,12 @@ class OllamaClient():
         Initializes the Ollama instance.
 
         Args:
-            url (str): The API endpoint URL.
+            url (Optional[str]): The API endpoint URL.
             headers (dict, optional): HTTP headers for the API request. Defaults to None.
             model (str, optional): The model to use for generation. Defaults to "phi3:mini".
+            tools (Optional[Sequence[Tool]]): A list of tools to convert to Ollama format.
+            format (Optional[BaseModel]): The format for validating responses.
             **kwargs: Additional parameters for the API request.
-    
         """
         self.url = url.strip() if url else None
         headers = headers or { "Content-Type": "application/json" }
@@ -57,13 +67,12 @@ class OllamaClient():
     async def ainvoke(self, messages: Union[Dict[str, Any], Sequence[BaseMessage]]) -> Dict[str, Any]:
         """
         Asynchronously generates a response from the Ollama chat model using a list of messages.
-        Under the hood, it uses the Ollama API to send the messages and receive a response.
 
         Args:
-            messages (Sequence[BaseMessage]): A list of messages for the conversation.
+            messages (Union[Dict[str, Any], Sequence[BaseMessage]]): A list of messages for the conversation or a dictionary.
 
         Returns:
-            Dict[str, Any]: A dictionary containing the generated response.
+            Dict[str, Any]: A dictionary containing the generated response, tool calls, and raw response.
 
         Raises:
             LLMGenerationError: If there is an error during the generation process.
@@ -108,6 +117,15 @@ class OllamaClient():
             raise LLMGenerationError(f"Unexpected error during query: {str(e)}")
         
     def _get_tool_calls(self, ollama_result) -> List[Dict[str, Any]]:
+        """
+        Extracts tool calls from the Ollama result.
+
+        Args:
+            ollama_result: The result object from the Ollama API.
+
+        Returns:
+            List[Dict[str, Any]]: A list of tool calls with their names, arguments, and IDs.
+        """
         if not ollama_result.tool_calls:
             return []
         
@@ -134,8 +152,6 @@ class OllamaClient():
             List[Dict[str, Any]]: A list of converted OllamaTool instances.
         """
         ollama_params_properties = {}
-
-        # pprint(f"Tool: {tools.__getattribute__('tools')[0]} \n   type: {type(tools.__getattribute__('tools')[0])}")
 
         ollama_tools = []
         for tool in tools.__getattribute__('tools'):

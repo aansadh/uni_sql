@@ -1,3 +1,12 @@
+"""
+This module provides the MCPClient class for interacting with the MCP server.
+
+The MCPClient class is designed to manage communication with the MCP server,
+including listing resources, prompts, and tools, as well as calling tools with
+specific parameters. It is implemented as an asynchronous context manager to
+ensure proper session management.
+"""
+
 from mcp.client.streamable_http import streamablehttp_client
 from mcp import ClientSession
 from rich import print
@@ -17,6 +26,7 @@ class MCPClient:
         _session (ClientSession): The current client session.
         _streameablehttp_client (streamablehttp_client): The HTTP client for streaming.
         _client_session (ClientSession): The client session for communication.
+        tools (List[Tool]): A list of tools available on the MCP server.
 
     NOTE:
         This class is designed to be used as an asynchronous context manager.
@@ -60,6 +70,11 @@ class MCPClient:
         Asynchronous context manager exit point.
 
         Cleans up the client session and streaming HTTP client.
+
+        Args:
+            exc_type (type): The exception type, if any.
+            exc_value (Exception): The exception instance, if any.
+            traceback (Traceback): The traceback object, if any.
         """
         logger.info("Exiting MCPClient context manager.")
         if self._client_session:
@@ -86,7 +101,7 @@ class MCPClient:
 
     async def list_resources(self):
         """
-        Asynchrounously lists all available resources on the MCP server.
+        Asynchronously lists all available resources on the MCP server.
 
         Returns:
             List[Resource]: A list of available resources.
@@ -96,7 +111,7 @@ class MCPClient:
 
     async def list_prompts(self):
         """
-        Asynchrounously lists all available prompts on the MCP server.
+        Asynchronously lists all available prompts on the MCP server.
 
         Returns:
             List[Prompt]: A list of available prompts.
@@ -120,7 +135,10 @@ class MCPClient:
 
         Args:
             tool_name (str): The name of the tool to call.
-            params (dict): The parameters for the tool.
+            arguments (dict): The parameters for the tool.
+
+        Returns:
+            Any: The result of the tool execution.
         """
         logger.info("Calling tool '%s' with parameters: %s", tool_name, arguments)
         print(f"Calling tool '{tool_name}' with parameters: {arguments}")

@@ -1,3 +1,11 @@
+"""
+This module defines the main logic for the MCP client application.
+
+It includes the definition of the agent state, initialization logic, user input handling,
+orchestration, and tool execution. The module also sets up a state graph to manage
+the flow of the application.
+"""
+
 from langgraph.graph import StateGraph, START, END
 from typing import Optional, Dict, TypedDict, Union, List, Any, Annotated, Sequence, Literal
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -6,16 +14,11 @@ from host.core.config import settings
 from langgraph.graph.message import add_messages
 from langgraph.types import interrupt
 from host.llm.client import OllamaClient
-from host.exceptions import LLMGenerationError
 from host.llm.models import OllamaResponseModel
-import json
 from mcp import Tool as MCPTool
-from .utils import parse_json_string_to_dict
 import logging
 from rich import print
 from pprint import pprint
-from ollama import chat
-import uuid
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', handlers=[logging.StreamHandler()])
 logger = logging.getLogger(__name__)
@@ -36,9 +39,14 @@ class AgentState(TypedDict):
     Attributes:
         messages (Sequence[BaseMessage]): A sequence of messages exchanged.
         tools (List[MCPTool]): A list of available tools.
-        arguments (Dict[str, Any]): Arguments for the next tool.
-        next_tool (Optional[NodeType]): The next tool to be executed.
+        tool_calls (Optional[List[Dict[str, Any]]]): A list of tool calls to be executed.
         last_node (Optional[NodeType]): The last executed node.
+
+    Note:
+        tool_calls is a list of dictionaries where each dictionary contains:
+        - 'name': The name of the tool to be called.
+        - 'args': The arguments to pass to the tool.
+        - 'id': A unique identifier for the tool call.
     """
     messages: Annotated[Sequence[BaseMessage], add_messages]
     tools: List[MCPTool]
@@ -150,8 +158,7 @@ def decide_next_node(state: AgentState) -> AgentState:
     Returns:
         AgentState: The updated state with the next node.
     """
-    logger.debug("Deciding the next node with state:")
-    # pprint(state)
+    logger.info("Entered decide_next_node")
     last_node = state.get('last_node', None)
     if state.get('tool_calls') and state['tool_calls'] and last_node == 'agent':
         logger.debug("Next node decided: tool_executor")
@@ -176,7 +183,6 @@ async def call_tool(state: AgentState) -> AgentState:
     Raises:
         ValueError: If no tool is specified to call.
     """
-    logger.debug("Calling tools.")
     logger.info("In call_tool node.")
 
     state['last_node'] = 'call_tool'
@@ -191,23 +197,6 @@ async def call_tool(state: AgentState) -> AgentState:
     state['tool_calls'] = None
 
     return state
-
-
-    # if not state.get('next_tool'):
-    #     logger.error("No tool specified to call.")
-    #     raise ValueError("No tool specified to call.")
-    
-    # async with MCPClient(settings.MCP_SERVER_URL) as client:
-    #     result = await client.call_tool(state.get('next_tool'), state.get('arguments'))
-    # print("Tool result:")
-    # print(result)
-    # print("type of content", type(result.content[0].text))
-    # state['messages'].append(ToolMessage(content=result.content[0].text, tool_call_id=state['next_tool_id']))
-    # state['next_tool'] = None
-    # state['next_tool_id'] = None
-    # state['arguments'] = None
-
-    # return state
 
 async def agent(state: AgentState) -> AgentState:
     """
