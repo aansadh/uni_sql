@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     NL2SQL_LLM_MODEL: str = "sqlcoder:7b"
 
     LLM_URL: str = "http://localhost:11434/api/chat"
-    LLM_MODEL: str = "llama3.1:8b"
+    LLM_MODEL: str = "qwen2.5:7b"
 
     # MCP Server (Database Connector) settings
     MCP_SERVER_URL: str = "http://localhost:8000/mcp"

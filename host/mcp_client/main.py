@@ -8,18 +8,16 @@ the flow of the application.
 
 from langgraph.graph import StateGraph, START, END
 from typing import Optional, Dict, TypedDict, Union, List, Any, Annotated, Sequence, Literal
-from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage
+# from langchain_core.messages import BaseMessage, AIMessage, HumanMessage, SystemMessage, ToolMessage
 from .client import MCPClient
 from host.core.config import settings
-from langgraph.graph.message import add_messages
-from langgraph.types import interrupt
+# from langgraph.graph.message import add_messages
 from host.llm.client import OllamaClient
-from host.llm.models import OllamaResponseModel
-from mcp import Tool as MCPTool
+# from host.llm.models import OllamaResponseModel
+from mcp import Tool
 import logging
 from rich import print
 from pprint import pprint
-from IPython.display import Image, display
 
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', handlers=[logging.StreamHandler()])
 logger = logging.getLogger(__name__)
@@ -42,10 +40,10 @@ class AgentState(TypedDict):
         - 'args': The arguments to pass to the tool.
         - 'id': A unique identifier for the tool call.
     """
-    messages: Annotated[Sequence[BaseMessage], add_messages]
-    tools: List[MCPTool]
-    last_node: Optional[Literal["call_tool", "agent", "orchestrator", "human_assistance"]] = None
-    tool_calls: Optional[List[Dict[str, Any]]] = None
+    message: Dict
+    tools: List[Tool]
+    state: Optional[Literal["tool_call", "agent", "orchestrator", "human"]] = None
+    tool_calls: Optional[List[Any]] = None
 
 async def initialize_state(agent_state: AgentState) -> AgentState:
     """
@@ -65,44 +63,7 @@ async def initialize_state(agent_state: AgentState) -> AgentState:
         print("Available tools:\n", agent_state['tools'])
 
     _llm = OllamaClient(model=settings.LLM_MODEL, tools=agent_state.get('tools'))
-    agent_state['messages'] = []
-    agent_state['tool_calls'] = []
     logger.debug("Agent state initialized")
-
-    system_message = SystemMessage(
-        content=
-        """
-        You are a helpful AI assistant. Your main goal is to respond to the user's request.
-
-        **Decision Making Guidelines:**
-        * **Prioritize direct answers:** If the user's query is a greeting, a general question, or a conversational remark, **DO NOT call any tool. Instead, respond using the format described in guideline 1.
-        * **Call a function ONLY when explicitly necessary:** A function call is required only when the user's intent clearly and unambiguously requests a data operation (e.g., "Get me the latest sales data", "Find users in New York").
-        * **Validate all arguments:** Ensure every argument you provide to a tool is meaningful, correctly formatted, and directly relevant to the tool's purpose. **NEVER** provide empty or nonsensical arguments.
-        * Do not respond with thinking or reasoning messages or any meta-commentary about the decision-making process. Provide a direct response only.
-
-        **Reasoning Sequence:**
-        1. *Attempt Direct Answer*: First, try to answer the user's query directly without making any tool calls. If the content of the query can be fully and accurately addressed using your existing knowledge, provide a direct response.
-
-        2. *Evaluate Tool Necessity*: If a direct answer is not possible or insufficient, assess whether any available tools can resolve the query.
-
-        3. *Conditional Tool Call*: Call a tool only if the query cannot be answered without making a call and it is clear from the tool description that using the tool will directly resolve the query.
-
-        4. *Inform User*: If the query cannot be answered directly and no suitable tool is available or clearly applicable, inform the user that the query cannot be answered.
-
-
-        **Output Structure and Field Usage Guidelines:**
-
-        1.  **For conversational/direct answers (NO tool needed):**
-            * No need to provide response in json format. Directly respond with a string.
-            * Example: "Hello! How can I assist you today?"
-
-        2.  **For tool calls (tool IS needed):**
-            * The **"content" field MUST be an empty string `""`**.
-            * Example: `{"tool_name": "execute_sql_query", "arguments": {"query": "SELECT * FROM users", "params": {}}, "content": ""}`
-        """
-    )
-
-    agent_state['messages'].append(system_message)
 
     return agent_state
 
@@ -124,8 +85,11 @@ def user_input(state: AgentState) -> AgentState:
     """
     logger.debug("Prompting user for input.")
     user_input = input("Enter your query: ")
-    state['messages'].append(HumanMessage(content=user_input))
-    state['last_node'] = 'human_assistance'
+    state['message'] = {
+        'role': 'user',
+        'content': user_input
+    }
+    state['state'] = 'agent'
     logger.debug("User input received:")
     pprint(user_input)
     return state
@@ -141,10 +105,10 @@ def orchestrator(state: AgentState) -> AgentState:
         AgentState: The updated state.
     """
     logger.debug("Orchestrating the agent flow with state: %s", state)
-    print("Current node: orchestrator    last_node: ", state.get('last_node'))
+    print("Current node: orchestrator    state: ", state.get('state'))
     return state
 
-def decide_next_node(state: AgentState) -> AgentState:
+def next_node(state: AgentState) -> AgentState:
     """
     Decides the next node to execute based on the current state.
 
@@ -154,17 +118,7 @@ def decide_next_node(state: AgentState) -> AgentState:
     Returns:
         AgentState: The updated state with the next node.
     """
-    logger.info("Entered decide_next_node")
-    last_node = state.get('last_node', None)
-    if state.get('tool_calls') and state['tool_calls'] and last_node == 'agent':
-        logger.debug("Next node decided: tool_executor")
-        return "tool_executor"
-    elif last_node == 'call_tool' or last_node == 'human_assistance':
-        logger.debug("Next node decided: agent")
-        return "agent"
-    elif last_node == 'agent':
-        logger.debug("Next node decided: end")
-        return "user_input"
+    return state.get('state', 'end')
 
 async def call_tool(state: AgentState) -> AgentState:
     """
@@ -181,16 +135,21 @@ async def call_tool(state: AgentState) -> AgentState:
     """
     logger.info("In call_tool node.")
 
-    state['last_node'] = 'call_tool'
+    state['message'] = {
+        'role': 'tool',
+        'content': '',
+    }
 
     async with MCPClient(settings.MCP_SERVER_URL) as client:
         if state.get('tool_calls'):
             for tool in state.get('tool_calls'):
-                result = await client.call_tool(tool['name'], tool['args'])
-                print("Tool result: ", result)
-                state['messages'].append(ToolMessage(content=result.content[0].text, tool_call_id=tool['id']))
-    
+                function = tool.function
+                result = await client.call_tool(function.name, function.arguments)
+                state['message']['content'] += 'Result for {} is {}'.format(function.name, result.content[0].text)
+            print("Tool result: ", state['message']['content'])
     state['tool_calls'] = None
+
+    state['state'] = 'agent'
 
     return state
 
@@ -205,16 +164,19 @@ async def agent(state: AgentState) -> AgentState:
         AgentState: The updated state after agent execution.
     """
     logger.info("In agent node.")
-    state["last_node"] = "agent"
 
-    response = await _llm.ainvoke(state.get('messages'))  
+    response = await _llm.ainvoke(state.get('message'))
     
-    content, tool_calls = response.get('content'), response.get('tool_calls', None)
+    print("LLM response:", response)
 
-    state['tool_calls'] = tool_calls
-    state['messages'].append(AIMessage(content=response['raw_response'].message.content or "", tool_calls=tool_calls))
+    tool_calls = response.message.get('tool_calls', [])
+    if tool_calls:
+        state['tool_calls'] = tool_calls
+        state['state'] = 'tool_call'
+    else:
+        state['state'] = 'human'
 
-    print("LLM response content:", content, " tool calls:", tool_calls)
+    print("LLM response content:", response.message.content, " tool calls:", tool_calls)
 
     return state
 
@@ -225,24 +187,24 @@ logger.debug("Setting up the state graph.")
 graph.add_edge(START, "initialize_state")
 
 graph.add_node("initialize_state", initialize_state)
-graph.add_node("user_input", user_input)
+graph.add_node("human", user_input)
 graph.add_node("orchestrator", orchestrator)
 graph.add_node("agent", agent)
-graph.add_node("tools", call_tool)
+graph.add_node("tool_call", call_tool)
 
-graph.add_edge("initialize_state", "user_input")
-graph.add_edge("user_input", "orchestrator")
-graph.add_edge("tools", "orchestrator")
+graph.add_edge("initialize_state", "human")
+graph.add_edge("human", "orchestrator")
+graph.add_edge("tool_call", "orchestrator")
 graph.add_edge("agent", "orchestrator")
 
 graph.add_conditional_edges(
     "orchestrator",
-    decide_next_node,
+    next_node,
     {
-        "tool_executor": "tools",
+        "tool_call": "tool_call",
         "agent": "agent",
-        "end": END,
-        "user_input": "user_input"
+        "human": "human",
+        "end": END
     }
 )
 
@@ -261,4 +223,4 @@ if __name__ == '__main__':
     agent_state: AgentState = {}
     logger.debug("Initial agent state:")
     pprint(agent_state)
-    asyncio.run(app.ainvoke(agent_state))
+    asyncio.run(app.ainvoke(agent_state, config={"recursion_limit": 100}))

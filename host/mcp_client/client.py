@@ -127,7 +127,8 @@ class MCPClient:
             List[Tool]: A list of available tools.
         """
         logger.info("Listing tools from the MCP server.")
-        return await self._get_session().list_tools()
+        tool_list = await self._get_session().list_tools()
+        return tool_list.tools
 
     async def call_tool(self, tool_name: str, arguments: dict):
         """
