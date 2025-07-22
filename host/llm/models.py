@@ -60,6 +60,6 @@ class OllamaResponseModel(BaseModel):
         arguments (Optional[Dict[str, Any]]): The arguments to pass to the tool.
         content (Optional[str]): The content of the response message.
     """
-    tool_name: Optional[str] = Field(None, description="Name of the tool to be called.", alias='name')
-    arguments: Optional[Dict[str, Any]] = Field(None, description="Arguments to pass to the tool. Must match the argument format specified in the tool metadata.", alias='arguments')
+    # tool_name: Optional[str] = Field(None, description="Name of the tool to be called.", alias='name')
+    # arguments: Optional[Dict[str, Any]] = Field(None, description="Arguments to pass to the tool. Must match the argument format specified in the tool metadata.", alias='arguments')
     content: Optional[str] = Field(None, description="Content of the response message.", alias='content')

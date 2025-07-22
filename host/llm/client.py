@@ -95,23 +95,22 @@ class OllamaClient():
             try:
                 if self.format and raw_response.message.content.strip():
                     response = self.format.model_validate_json(raw_response.message.content)
+                else:
+                    response = raw_response.message.content
             except json.JSONDecodeError as e:
                 response = raw_response.message.content
 
             tool_calls = self._get_tool_calls(raw_response.message)
 
+            print(f"Raw response: {raw_response}")
+            print(f"raw.message.content : ", raw_response.message.content)
+            
             return {
                 'content': response,
                 'tool_calls': tool_calls,
                 'raw_response': raw_response
             }
 
-        except httpx.HTTPError as e:
-            logger.error(f"Model API error: {e.response.status_code} - {e.response.text}", exc_info=True)
-            raise LLMGenerationError(f"Model API error: {e.response.status_code} - {e.response.text}")
-        except httpx.RequestError as e:
-            logger.error(f"Request to model API failed: {str(e)}", exc_info=True)
-            raise LLMGenerationError(f"Request to model API failed: {str(e)}")
         except Exception as e:
             logger.error(f"Unexpected error during query: {str(e)}", exc_info=True)
             raise LLMGenerationError(f"Unexpected error during query: {str(e)}")
@@ -143,117 +142,89 @@ class OllamaClient():
     @staticmethod
     def convert_mcp_tools_to_ollama_tools(tools: List[Tool]) -> List[Dict[str, Any]]:
         """
-        Converts a list of MCP Tool objects to OllamaTool Pydantic instances.
-
-        Args:
-            tools (List[Tool]): A list of MCP Tool objects to convert.
-
-        Returns:
-            List[Dict[str, Any]]: A list of converted OllamaTool instances.
+        Converts a list of MCP Tool objects to Ollama-compatible tool definitions.
         """
-        ollama_params_properties = {}
-
         ollama_tools = []
+
         for tool in tools.__getattribute__('tools'):
-            for prop_name, prop_details in tool.inputSchema.get('properties', {}).items():
-                param_prop_json_schema_extra = {}
-
-                if 'title' in prop_details and prop_details['title'] is not None:
-                    param_prop_json_schema_extra['title'] = prop_details['title']
-                if 'default' in prop_details and prop_details['default'] is not None:
-                    param_prop_json_schema_extra['default'] = prop_details['default']
-                if 'additionalProperties' in prop_details and prop_details['additionalProperties'] is not None:
-                    param_prop_json_schema_extra['additionalProperties'] = prop_details['additionalProperties']
-
-                ollama_params_properties[prop_name] = ParameterProperty(
-                    type=prop_details['type'],
-                    description=prop_details.get('description', prop_details.get('title')),
-                    json_schema_extra=param_prop_json_schema_extra if param_prop_json_schema_extra else None
+            props = {}
+            for name, details in tool.inputSchema.get('properties', {}).items():
+                extra = {
+                    k: v for k, v in details.items()
+                    if k in {"title", "default", "additionalProperties"} and v is not None
+                }
+                props[name] = ParameterProperty(
+                    type=details['type'],
+                    description=details.get('description') or details.get('title'),
+                    json_schema_extra=extra or None
                 )
 
-            ollama_function_parameters = FunctionParameters(
-                properties=ollama_params_properties,
+            func_params = FunctionParameters(
+                properties=props,
                 required=tool.inputSchema.get('required', []),
-                additionalProperties=tool.inputSchema.get('additionalProperties') 
+                additionalProperties=tool.inputSchema.get('additionalProperties')
             )
 
-            ollama_function_definition = FunctionTool(
-                name=tool.name,
-                description=tool.description, 
-                parameters=ollama_function_parameters
-            )
-
-            ollama_tool = OllamaTool(
-                function=ollama_function_definition
-            )
-
-            ollama_tools.append(ollama_tool.model_dump())
+            ollama_tools.append(OllamaTool(
+                function=FunctionTool(
+                    name=tool.name,
+                    description=tool.description,
+                    parameters=func_params
+                )
+            ).model_dump())
 
         return ollama_tools
 
     @staticmethod
     def convert_lc_messages_to_ollama_messages(messages: Sequence[BaseMessage]) -> List[Dict[str, Any]]:
         """
-        Converts a sequence of LangChain BaseMessage objects into the basic dictionary
-        format expected by the Ollama API for chat messages, correctly handling
-        tool calls as dictionaries.
-
-        Args:
-            messages (Sequence[BaseMessage]): A sequence of LangChain message objects.
-
-        Returns:
-            List[Dict[str, Any]]: A list of dictionaries, each representing an Ollama chat message.
+        Converts LangChain messages to Ollama chat message format.
         """
         ollama_messages = []
+
         for msg in messages:
             if isinstance(msg, HumanMessage):
                 ollama_messages.append({"role": "user", "content": msg.content})
+
             elif isinstance(msg, SystemMessage):
                 ollama_messages.append({"role": "system", "content": msg.content})
+
             elif isinstance(msg, AIMessage):
-                ollama_message_dict = {
-                    "role": "assistant",
-                    "content": msg.content or "", # Ensure content is a string, even if empty
-                }
+                entry = {"role": "assistant", "content": msg.content or ""}
                 if msg.tool_calls:
-                    ollama_tool_calls = []
-                    for tc_dict in msg.tool_calls: # Renamed variable to tc_dict for clarity
-                        # Access name and args using dictionary key access
-                        # as you are providing dictionaries to AIMessage's tool_calls
-                        tool_name = tc_dict.get("name")
-                        tool_args = tc_dict.get("args")
-                        # The 'id' is in tc_dict but not needed for Ollama's 'tool_calls' in assistant message
-
-                        if tool_name is None or tool_args is None:
-                            logger.warning(f"Malformed tool call dictionary encountered in AIMessage: {tc_dict}. Skipping this tool call.")
+                    tool_calls = []
+                    for tc in msg.tool_calls:
+                        name, args = tc.get("name"), tc.get("args")
+                        if not name or not args:
+                            logger.warning(f"Malformed tool call: {tc}")
                             continue
-
-                        ollama_tool_calls.append({
-                            "type": "function", # Ollama expects this type for function calls
-                            "function": {
-                                "name": tool_name,
-                                "arguments": tool_args
-                            }
+                        tool_calls.append({
+                            "type": "function",
+                            "function": {"name": name, "arguments": args}
                         })
-                    ollama_message_dict["tool_calls"] = ollama_tool_calls
-                ollama_messages.append(ollama_message_dict)
+                    entry["tool_calls"] = tool_calls
+                ollama_messages.append(entry)
+
             elif isinstance(msg, ToolMessage):
                 ollama_messages.append({
                     "role": "tool",
                     "content": msg.content,
-                    "tool_call_id": msg.tool_call_id # This ID is crucial for Ollama to link the tool output
+                    "tool_call_id": msg.tool_call_id
                 })
+
             elif isinstance(msg, FunctionMessage):
                 ollama_messages.append({
                     "role": "tool",
                     "content": msg.content,
-                    "tool_call_id": getattr(msg, 'tool_call_id', None) or msg.name # Fallback if tool_call_id not direct
+                    "tool_call_id": getattr(msg, 'tool_call_id', None) or msg.name
                 })
+
             else:
-                logger.warning(f"Unsupported LangChain message type encountered: {type(msg)}. Converting to user message content.")
+                logger.warning(f"Unsupported message type: {type(msg)}")
                 ollama_messages.append({"role": "user", "content": str(msg)})
+
         return ollama_messages
-    
+
 if __name__ == "__main__":
     """
     Demonstrates the conversion of MCP Tool objects to OllamaTool instances.

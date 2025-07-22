@@ -19,18 +19,12 @@ from mcp import Tool as MCPTool
 import logging
 from rich import print
 from pprint import pprint
+from IPython.display import Image, display
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', handlers=[logging.StreamHandler()])
+# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', handlers=[logging.StreamHandler()])
 logger = logging.getLogger(__name__)
 
 _llm: OllamaClient = None
-
-NodeType = Literal[
-    "call_tool",
-    "agent",
-    "orchestrator",
-    "human_assistance"
-]
 
 class AgentState(TypedDict):
     """
@@ -50,7 +44,7 @@ class AgentState(TypedDict):
     """
     messages: Annotated[Sequence[BaseMessage], add_messages]
     tools: List[MCPTool]
-    last_node: Optional[NodeType] = None
+    last_node: Optional[Literal["call_tool", "agent", "orchestrator", "human_assistance"]] = None
     tool_calls: Optional[List[Dict[str, Any]]] = None
 
 async def initialize_state(agent_state: AgentState) -> AgentState:
@@ -68,8 +62,9 @@ async def initialize_state(agent_state: AgentState) -> AgentState:
 
     async with MCPClient(settings.MCP_SERVER_URL) as client:
         agent_state['tools'] = await client.list_tools()
+        print("Available tools:\n", agent_state['tools'])
 
-    _llm = OllamaClient(model=settings.LLM_MODEL, tools=agent_state.get('tools'), format=OllamaResponseModel)
+    _llm = OllamaClient(model=settings.LLM_MODEL, tools=agent_state.get('tools'))
     agent_state['messages'] = []
     agent_state['tool_calls'] = []
     logger.debug("Agent state initialized")
@@ -77,32 +72,33 @@ async def initialize_state(agent_state: AgentState) -> AgentState:
     system_message = SystemMessage(
         content=
         """
-        You are a helpful AI assistant. Your main goal is to respond to the user's request by strictly adhering to a specific JSON output format.
-
-        You have access to a set of functions to help you with data-related tasks.
-
-        **Output Structure and Field Usage Guidelines (MUST always be a valid JSON object):**
-
-        1.  **For conversational/direct answers (NO tool needed):**
-            * Set the **"tool_name" field to `null`**.
-            * Set the **"arguments" field to `null`**.
-            * The **"content" field MUST contain your natural language response** to the user (e.g., greetings, general facts, conversational remarks).
-            * Example: `{"tool_name": null, "arguments": null, "content": "Hello! How can I assist you today?"}`
-
-        2.  **For tool calls (tool IS needed):**
-            * The **"tool_name" field MUST contain the exact name of the tool** to be called (e.g., "execute_sql_query").
-            * The **"arguments" field MUST be a JSON object containing all required parameters** for the tool.
-            * The **"content" field MUST be an empty string `""`**.
-            * Example: `{"tool_name": "execute_sql_query", "arguments": {"query": "SELECT * FROM users", "params": {}}, "content": ""}`
-
-        **Specific details for the `execute_sql_query` tool:**
-        * The `query` argument **MUST** be a valid SQL statement directly related to the user's data request. It **MUST NOT** contain conversational text or non-SQL commands.
-        * The `params` argument **MUST** be a JSON object (`{}`) containing any necessary query parameters. Use `{}` if no parameters are needed.
+        You are a helpful AI assistant. Your main goal is to respond to the user's request.
 
         **Decision Making Guidelines:**
         * **Prioritize direct answers:** If the user's query is a greeting, a general question, or a conversational remark, **DO NOT call any tool. Instead, respond using the format described in guideline 1.
         * **Call a function ONLY when explicitly necessary:** A function call is required only when the user's intent clearly and unambiguously requests a data operation (e.g., "Get me the latest sales data", "Find users in New York").
         * **Validate all arguments:** Ensure every argument you provide to a tool is meaningful, correctly formatted, and directly relevant to the tool's purpose. **NEVER** provide empty or nonsensical arguments.
+        * Do not respond with thinking or reasoning messages or any meta-commentary about the decision-making process. Provide a direct response only.
+
+        **Reasoning Sequence:**
+        1. *Attempt Direct Answer*: First, try to answer the user's query directly without making any tool calls. If the content of the query can be fully and accurately addressed using your existing knowledge, provide a direct response.
+
+        2. *Evaluate Tool Necessity*: If a direct answer is not possible or insufficient, assess whether any available tools can resolve the query.
+
+        3. *Conditional Tool Call*: Call a tool only if the query cannot be answered without making a call and it is clear from the tool description that using the tool will directly resolve the query.
+
+        4. *Inform User*: If the query cannot be answered directly and no suitable tool is available or clearly applicable, inform the user that the query cannot be answered.
+
+
+        **Output Structure and Field Usage Guidelines:**
+
+        1.  **For conversational/direct answers (NO tool needed):**
+            * No need to provide response in json format. Directly respond with a string.
+            * Example: "Hello! How can I assist you today?"
+
+        2.  **For tool calls (tool IS needed):**
+            * The **"content" field MUST be an empty string `""`**.
+            * Example: `{"tool_name": "execute_sql_query", "arguments": {"query": "SELECT * FROM users", "params": {}}, "content": ""}`
         """
     )
 
@@ -166,9 +162,9 @@ def decide_next_node(state: AgentState) -> AgentState:
     elif last_node == 'call_tool' or last_node == 'human_assistance':
         logger.debug("Next node decided: agent")
         return "agent"
-    else:
+    elif last_node == 'agent':
         logger.debug("Next node decided: end")
-        return "end"
+        return "user_input"
 
 async def call_tool(state: AgentState) -> AgentState:
     """
@@ -245,11 +241,13 @@ graph.add_conditional_edges(
     {
         "tool_executor": "tools",
         "agent": "agent",
-        "end": END
+        "end": END,
+        "user_input": "user_input"
     }
 )
 
 app = graph.compile()
+# display(Image(graph.get_graph().draw_mermaid_png()))
 
 if __name__ == '__main__':
     """
