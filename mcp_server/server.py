@@ -91,6 +91,47 @@ async def execute_sql_query(
         except Exception as e:
             raise QueryExecutionError(f"Error executing query: {str(e)}") from e
         
+@mcp.tool(
+    name="add",
+    title="Add Numbers",
+    description="Adds two numbers together.",
+)
+async def add(a: int, b: int) -> int:
+    """
+    Adds two numbers together.
+
+    Args:
+        a (int): The first number.
+        b (int): The second number.
+
+    Returns:
+        int: The sum of the two numbers.
+    """
+    return a + b
+
+@mcp.tool(
+    name="get_weather",
+    title="Get Weather",
+    description="Retrieves the current weather for a given location."
+)
+async def get_temperature(location: str) -> str:
+    """
+    Retrieves the current temperatur for a given location.
+
+    Args:
+        location (str): The location for which to retrieve the temperature.
+
+    Returns:
+        str: A string describing the current temperature.
+    """
+    if location.lower() == "london":
+        return "It's currently 15°C in London."   
+    elif location.lower() == "new york":
+        return "It's currently 20°C in New York."
+    else:
+        return f"It's currently 10°C in {location}."
+    
+    
 if __name__ == "__main__":
     """
     Main entry point for the server.
