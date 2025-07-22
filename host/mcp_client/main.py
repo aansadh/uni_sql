@@ -255,6 +255,7 @@ if __name__ == '__main__':
 
     Initializes the agent state and runs the application.
     """
+    
     logger.info("Starting the application.")
     import asyncio
 
